@@ -1,0 +1,10 @@
+# IDE
+.idea/
+.vscode/
+
+# Go 构建产物
+*.exe
+*.test
+*.out
+bin/
+vendor/
