@@ -45,6 +45,37 @@ func TestNewValidation(t *testing.T) {
 	}
 }
 
+func TestValidateOutTradeNo(t *testing.T) {
+	valid := []string{
+		"ORDER1",
+		"A1",
+		"ORDER_20260818_001",
+		"abc123",
+		"ABC_123",
+		"ORDER123_456",
+	}
+	for _, s := range valid {
+		if err := validateOutTradeNo(s); err != nil {
+			t.Errorf("validateOutTradeNo(%q) = %v, want nil", s, err)
+		}
+	}
+
+	invalid := []string{
+		"123456",                           // 纯数字
+		"abcdef",                           // 纯英文
+		"8",                                // 纯数字
+		"A",                                // 纯英文
+		"ORDER202608180001234567890123456", // 超 25 位（26 位）
+		"ORDER-1",                          // 非法字符
+		"订单1",                              // 非 ASCII 非法字符
+	}
+	for _, s := range invalid {
+		if err := validateOutTradeNo(s); err == nil {
+			t.Errorf("validateOutTradeNo(%q) = nil, want error", s)
+		}
+	}
+}
+
 func TestEncryptDecryptRoundTrip(t *testing.T) {
 	c := testClient(t)
 	params := map[string]string{
@@ -120,6 +151,26 @@ func TestHashInfoFormat(t *testing.T) {
 		if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'F') {
 			t.Fatalf("HashInfo contains non-uppercase-hex rune %q in %q", r, h)
 		}
+	}
+}
+
+func TestParseQueryResult(t *testing.T) {
+	// 模拟交易查詢回传的明文（PHP http_build_query 嵌套数组表示法）。
+	plain := "Status=SUCCESS&Result%5B0%5D%5BMerTradeNo%5D=ORDER1" +
+		"&Result%5B0%5D%5BTradeNo%5D=16614190477810373246" +
+		"&Result%5B0%5D%5BTradeAmt%5D=100" +
+		"&Result%5B0%5D%5BTradeStatus%5D=1" +
+		"&Result%5B1%5D%5BMerTradeNo%5D=ORDER2" +
+		"&Result%5B1%5D%5BTradeStatus%5D=2"
+	records := parseQueryResult(parseQuery(plain))
+	if len(records) != 2 {
+		t.Fatalf("len(records) = %d, want 2", len(records))
+	}
+	if records[0]["MerTradeNo"] != "ORDER1" || records[0]["TradeNo"] != "16614190477810373246" || records[0]["TradeAmt"] != "100" || records[0]["TradeStatus"] != "1" {
+		t.Errorf("records[0] = %v", records[0])
+	}
+	if records[1]["MerTradeNo"] != "ORDER2" || records[1]["TradeStatus"] != "2" {
+		t.Errorf("records[1] = %v", records[1])
 	}
 }
 

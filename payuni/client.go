@@ -100,6 +100,9 @@ func (c *Client) CreateOrder(req *gopay.CreateOrderRequest) (*gopay.CreateOrderR
 	if req.OutTradeNo == "" {
 		return nil, fmt.Errorf("%w: OutTradeNo is required", gopay.ErrInvalidRequest)
 	}
+	if err := validateOutTradeNo(req.OutTradeNo); err != nil {
+		return nil, err
+	}
 	if req.Amount == "" {
 		return nil, fmt.Errorf("%w: Amount is required", gopay.ErrInvalidRequest)
 	}
@@ -165,20 +168,81 @@ func (c *Client) QueryOrder(req *gopay.QueryOrderRequest) (*gopay.QueryOrderResp
 	}
 	mergeParams(params, req.Extra)
 
-	decrypted, rawBody, err := c.universalTrade(params, ModeTradeQuery, defaultVersion)
+	decrypted, rawBody, err := c.universalTrade(params, ModeTradeQuery, queryVersion)
 	if err != nil {
 		return nil, err
 	}
 
-	return &gopay.QueryOrderResponse{
-		Channel:    gopay.ChannelPayUni,
-		OutTradeNo: decrypted["MerTradeNo"],
-		TradeNo:    decrypted["TradeNo"],
-		TradeState: mapTradeState(decrypted["TradeStatus"]),
-		Amount:     decrypted["TradeAmt"],
-		Raw:        decrypted,
-		RawBody:    rawBody,
-	}, nil
+	resp := &gopay.QueryOrderResponse{
+		Channel: gopay.ChannelPayUni,
+		Raw:     decrypted,
+		RawBody: rawBody,
+	}
+	// 交易查詢回傳統一為 Result 陣列，單筆查詢取第一筆。
+	if records := parseQueryResult(decrypted); len(records) > 0 {
+		resp.OutTradeNo = records[0]["MerTradeNo"]
+		resp.TradeNo = records[0]["TradeNo"]
+		resp.TradeState = mapTradeState(records[0]["TradeStatus"])
+		resp.Amount = records[0]["TradeAmt"]
+	}
+	return resp, nil
+}
+
+// parseQueryResult 从解密后的扁平字段中提取 Result 数组。
+// PAYUNi 交易查詢回傳使用 PHP http_build_query 的嵌套数组表示法，
+// 形如 Result[0][MerTradeNo]=...、Result[1][TradeNo]=...。
+func parseQueryResult(fields map[string]string) []map[string]string {
+	records := map[int]map[string]string{}
+	maxIdx := -1
+	for k, v := range fields {
+		idx, key, ok := parseResultKey(k)
+		if !ok {
+			continue
+		}
+		if records[idx] == nil {
+			records[idx] = make(map[string]string)
+		}
+		records[idx][key] = v
+		if idx > maxIdx {
+			maxIdx = idx
+		}
+	}
+	if maxIdx < 0 {
+		return nil
+	}
+	result := make([]map[string]string, 0, maxIdx+1)
+	for i := 0; i <= maxIdx; i++ {
+		if records[i] != nil {
+			result = append(result, records[i])
+		}
+	}
+	return result
+}
+
+// parseResultKey 解析形如 "Result[0][MerTradeNo]" 的 key，
+// 返回下标、字段名与是否解析成功。
+func parseResultKey(s string) (int, string, bool) {
+	rest, ok := strings.CutPrefix(s, "Result[")
+	if !ok {
+		return 0, "", false
+	}
+	closeIdx := strings.IndexByte(rest, ']')
+	if closeIdx <= 0 {
+		return 0, "", false
+	}
+	idx, err := strconv.Atoi(rest[:closeIdx])
+	if err != nil {
+		return 0, "", false
+	}
+	field, ok := strings.CutPrefix(rest[closeIdx+1:], "[")
+	if !ok {
+		return 0, "", false
+	}
+	field, ok = strings.CutSuffix(field, "]")
+	if !ok {
+		return 0, "", false
+	}
+	return idx, field, true
 }
 
 // RefundOrder 退款（trade/close，默认 CloseType=2 退款）。
@@ -377,4 +441,37 @@ func mergeParams(dst, src map[string]string) {
 	for k, v := range src {
 		dst[k] = v
 	}
+}
+
+// validateOutTradeNo 校验 PAYUNi 商户订单号（MerTradeNo）：
+// 长度不得超过 25 位，仅允许数字、英文与下划线，且不能全为数字或全为英文。
+func validateOutTradeNo(s string) error {
+	if len(s) > 25 {
+		return fmt.Errorf("%w: OutTradeNo exceeds 25 characters (got %d)", gopay.ErrInvalidRequest, len(s))
+	}
+
+	allDigit := true
+	allLetter := true
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+			allLetter = false
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+			allDigit = false
+		case c == '_':
+			allDigit = false
+			allLetter = false
+		default:
+			return fmt.Errorf("%w: OutTradeNo contains invalid character %q; only letters, digits and underscore are allowed", gopay.ErrInvalidRequest, c)
+		}
+	}
+
+	if allDigit {
+		return fmt.Errorf("%w: OutTradeNo must not be all digits", gopay.ErrInvalidRequest)
+	}
+	if allLetter {
+		return fmt.Errorf("%w: OutTradeNo must not be all letters", gopay.ErrInvalidRequest)
+	}
+	return nil
 }

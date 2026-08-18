@@ -31,6 +31,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 
 	gopay "github.com/biubug/gopay"
@@ -80,7 +81,19 @@ func main() {
 // 异步通知处理：校验签名并解析。
 func notifyHandler(pc gopay.PaymentClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := parseBody(r) // 读取原始 form 数据
+		// 读取原始通知数据：GET（同步回传）用 query string，POST（异步通知）用表单 body。
+		var raw []byte
+		if r.Method == http.MethodGet {
+			raw = []byte(r.URL.RawQuery)
+		} else {
+			body, readErr := io.ReadAll(r.Body)
+			if readErr != nil {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			raw = body
+		}
+
 		result, err := pc.VerifyNotify(raw)
 		if err != nil {
 			// 校验失败，回 200 且不处理业务。

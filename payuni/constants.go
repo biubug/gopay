@@ -69,3 +69,6 @@ const NotifySuccessAck = "1|OK"
 
 // defaultVersion 默认接口版本号。
 const defaultVersion = "1.0"
+
+// queryVersion 交易查詢接口版本号（官方文件固定 2.0）。
+const queryVersion = "2.0"
