@@ -46,16 +46,20 @@ const (
 
 // 交易状态 TradeStatus（PAYUNi 定义）。
 const (
+	// TradeStatusIssued 取號成功（已取得繳費編號，尚未付款）。
+	TradeStatusIssued = "0"
 	// TradeStatusUnpaid 未付款。
-	TradeStatusUnpaid = "0"
+	TradeStatusUnpaid = "9"
 	// TradeStatusPaid 已付款。
 	TradeStatusPaid = "1"
 	// TradeStatusFailed 付款失敗。
 	TradeStatusFailed = "2"
-	// TradeStatusCanceled 已取消。
+	// TradeStatusCanceled 付款取消。
 	TradeStatusCanceled = "3"
-	// TradeStatusRefunded 已退款。
-	TradeStatusRefunded = "6"
+	// TradeStatusExpired 交易逾期。
+	TradeStatusExpired = "4"
+	// TradeStatusPending 訂單待確認。
+	TradeStatusPending = "8"
 )
 
 // 关账类型 CloseType（含义以官方文件为准）。

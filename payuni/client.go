@@ -300,7 +300,7 @@ func (c *Client) universalTrade(params map[string]string, mode, version string) 
 		params["MerID"] = c.merID
 	}
 	if params["Timestamp"] == "" {
-		params["Timestamp"] = strconv.FormatInt(time.Now().Unix(), 10)
+		params["Timestamp"] = strconv.FormatInt(time.Now().UnixMilli(), 10)
 	}
 
 	encryptInfo, hashInfo, isPlatForm, err := c.prepareEncryptInfo(params)

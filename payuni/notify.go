@@ -69,17 +69,16 @@ func (c *Client) VerifyNotify(rawData []byte) (*gopay.NotifyResult, error) {
 // mapTradeState 将 PAYUNi TradeStatus 映射为统一状态。
 func mapTradeState(status string) gopay.TradeState {
 	switch status {
-	case TradeStatusUnpaid:
+	case TradeStatusIssued, TradeStatusUnpaid:
 		return gopay.TradeStateUnpaid
 	case TradeStatusPaid:
 		return gopay.TradeStatePaid
 	case TradeStatusFailed:
 		return gopay.TradeStateFailed
-	case TradeStatusCanceled:
+	case TradeStatusCanceled, TradeStatusExpired:
 		return gopay.TradeStateCanceled
-	case TradeStatusRefunded:
-		return gopay.TradeStateRefunded
 	default:
+		// TradeStatusPending（訂單待確認）等其余状态返回 UNKNOWN。
 		return gopay.TradeStateUnknown
 	}
 }
