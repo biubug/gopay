@@ -4,8 +4,11 @@ Go 聚合支付 SDK，通过统一的 `PaymentClient` 接口屏蔽不同支付�
 
 目前实现渠道：
 
-- [x] PAYUNi 統一金流（整合式支付页 upp / 交易查询 / 退款）
+- [x] PAYUNi 統一金流（整合式支付页 upp / 交易查询 / 退款 / 通用交易）
+- [x] JKO Pay 街口支付（下单 / 查询 / 退款 / 异步通知）
 - [ ] 后续渠道（结构已预留，新增渠道无需改动上层调用代码）
+
+> 详细 API 文档见 [docs/API.md](./docs/API.md)（含全部参数表、必传说明、调用案例）。
 
 ## 特性
 
@@ -13,6 +16,7 @@ Go 聚合支付 SDK，通过统一的 `PaymentClient` 接口屏蔽不同支付�
 - PAYUNi 加解密与签名严格对齐官方 SDK：
   - `EncryptInfo = hex( base64(AES-256-GCM ciphertext) + ":::" + base64(GCM tag) )`
   - `HashInfo = 大写 hex( sha256(HashKey + EncryptInfo + HashIV) )`
+- JKO Pay 签名与官方 PHP SDK 一致：`digest = lowercase hex( HMAC-SHA256(payload, SecretKey) )`。
 - 仅依赖 Go 标准库，零第三方依赖。
 - 金额使用字符串，避免浮点精度问题。
 
@@ -74,7 +78,7 @@ func main() {
 	}
 	fmt.Printf("交易状态: %s\n", q.TradeState) // PAID / UNPAID / FAILED ...
 
-	// 3. 退款（预留，trade/close）
+	// 3. 退款（trade/close，默认 CloseType=2）
 	_, _ = pc.RefundOrder(&gopay.RefundOrderRequest{TradeNo: "平台交易号"})
 }
 
@@ -104,10 +108,67 @@ func notifyHandler(pc gopay.PaymentClient) http.HandlerFunc {
 			// 更新订单为已付款...
 		}
 		// 校验通过后回传应答。
-		w.Write([]byte(payuni.NotifySuccessAck)) // "1|OK"
+		w.Write([]byte(pc.NotifyAck())) // "OK"
 	}
 }
 ```
+
+### JKO Pay 示例
+
+```go
+package main
+
+import (
+	"fmt"
+
+	gopay "github.com/biubug/gopay"
+	"github.com/biubug/gopay/jkos"
+)
+
+func main() {
+	client, err := jkos.New(jkos.Config{
+		StoreID:   "your_store_id",
+		APIKey:    "your_api_key",
+		SecretKey: "your_secret_key",
+		Sandbox:   true,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	var pc gopay.PaymentClient = client
+
+	// 创建支付单（返回支付跳转地址）
+	resp, err := pc.CreateOrder(&gopay.CreateOrderRequest{
+		OutTradeNo: "ORDER202608190001",
+		Amount:     "100",
+		NotifyURL:  "https://your.site/api/jkos/notify",
+		ReturnURL:  "https://your.site/api/jkos/return",
+	})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(resp.RedirectURL) // 前端跳转此 URL 完成支付
+
+	// 查询订单（必须按商户订单号）
+	q, err := pc.QueryOrder(&gopay.QueryOrderRequest{OutTradeNo: "ORDER202608190001"})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("交易状态: %s\n", q.TradeState)
+
+	// 退款（按商户订单号）
+	_, err = pc.RefundOrder(&gopay.RefundOrderRequest{
+		OutTradeNo: "ORDER202608190001",
+		Amount:     "100",
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+```
+
+> JKO Pay 异步通知为 JSON body 且不携带签名，安全校验依赖 IP 白名单（由调用方在 HTTP 层实现）。详细处理方式见 [docs/API.md](./docs/API.md#异步通知处理通用模式)。
 
 ## 目录结构
 
@@ -115,17 +176,24 @@ func notifyHandler(pc gopay.PaymentClient) http.HandlerFunc {
 gopay/
 ├── types.go          # PaymentClient 接口 + 通用请求/响应 + 统一状态
 ├── errors.go         # 统一错误
-└── payuni/           # PAYUNi 渠道实现
+├── docs/
+│   └── API.md        # 详细 API 文档（参数表 / 必传 / 调用案例）
+├── payuni/           # PAYUNi 渠道实现
+│   ├── client.go     # 配置 / New / CreateOrder / QueryOrder / RefundOrder / UniversalTrade
+│   ├── crypto.go     # AES-256-GCM 加解密 / HashInfo / query 编解码
+│   ├── notify.go     # VerifyNotify / 状态映射
+│   └── constants.go  # 地址 / mode / 交易状态 / 关账类型
+└── jkos/             # JKO Pay 渠道实现
     ├── client.go     # 配置 / New / CreateOrder / QueryOrder / RefundOrder
-    ├── crypto.go     # AES-256-GCM 加解密 / HashInfo / query 编解码
     ├── notify.go     # VerifyNotify / 状态映射
-    └── constants.go  # 地址 / mode / 交易状态
+    ├── constants.go  # 地址 / mode / result 代码 / 交易状态
+    └── client_test.go
 ```
 
 ## 新增支付渠道
 
 1. 在 `gopay` 下新建子包（如 `gopay/newebpay`）。
-2. 实现 `gopay.PaymentClient` 接口的 4 个方法。
+2. 实现 `gopay.PaymentClient` 接口的 5 个方法（`CreateOrder` / `QueryOrder` / `RefundOrder` / `VerifyNotify` / `NotifyAck`）。
 3. 新增 `newebpay.New(cfg)` 构造器。
 
 上层代码仅需把构造器从 `payuni.New(...)` 换成 `newebpay.New(...)`，其余逻辑不涉及。
@@ -138,6 +206,7 @@ type PaymentClient interface {
 	QueryOrder(req *QueryOrderRequest) (*QueryOrderResponse, error)
 	RefundOrder(req *RefundOrderRequest) (*RefundOrderResponse, error)
 	VerifyNotify(rawData []byte) (*NotifyResult, error)
+	NotifyAck() string
 }
 ```
 
@@ -166,7 +235,10 @@ decrypted, rawBody, err := client.UniversalTrade(
 go test ./...
 ```
 
-测试包含与 OpenSSL/PHP 的跨语言黄金向量校验，确保加解密与签名字节一致。
+测试覆盖：
+
+- PAYUNi：与 OpenSSL/PHP 的跨语言黄金向量校验，确保 AES-256-GCM 加解密与 HashInfo 字节一致。
+- JKO Pay：HMAC-SHA256 签名黄金向量（POST/GET）、JSON 序列化（禁用 HTML 转义）、配置校验、回调解析、状态映射等。
 
 ## License
 
