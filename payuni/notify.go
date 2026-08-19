@@ -2,6 +2,7 @@ package payuni
 
 import (
 	"fmt"
+	"time"
 
 	gopay "github.com/biubug/gopay"
 )
@@ -18,7 +19,6 @@ func (c *Client) VerifyNotify(rawData []byte) (*gopay.NotifyResult, error) {
 		Channel: gopay.ChannelPayUni,
 		Status:  fields["Status"],
 		Message: fields["Message"],
-		Raw:     fields,
 	}
 
 	encryptInfo := fields["EncryptInfo"]
@@ -44,11 +44,6 @@ func (c *Client) VerifyNotify(rawData []byte) (*gopay.NotifyResult, error) {
 		return nil, fmt.Errorf("%w: %v", gopay.ErrVerifySignature, err)
 	}
 
-	// 解密字段补充进 Raw（与外部字段合并）。
-	for k, v := range decrypted {
-		result.Raw[k] = v
-	}
-
 	// 外层未带 Status 时，从解密结果取交易级 Status。
 	if result.Status == "" {
 		result.Status = decrypted["Status"]
@@ -62,6 +57,15 @@ func (c *Client) VerifyNotify(rawData []byte) (*gopay.NotifyResult, error) {
 	result.Amount = decrypted["TradeAmt"]
 	result.TradeState = mapTradeState(decrypted["TradeStatus"])
 	result.Paid = result.TradeState == gopay.TradeStatePaid
+	// 以下字段渠道未返回时为空字符串（零值），无需额外判断。
+	// PAYUNi 仅支持 TWD，币种固定返回 TWD。
+	result.Currency = "TWD"
+	result.PayType = decrypted["PaymentType"]
+	// 支付时间未返回时填当前时间。
+	result.PayTime = decrypted["PayTime"]
+	if result.PayTime == "" {
+		result.PayTime = time.Now().Format("2006-01-02 15:04:05")
+	}
 
 	return result, nil
 }

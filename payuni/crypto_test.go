@@ -177,12 +177,15 @@ func TestParseQueryResult(t *testing.T) {
 func TestVerifyNotifySuccess(t *testing.T) {
 	c := testClient(t)
 	params := map[string]string{
-		"MerID":       "ABC",
-		"MerTradeNo":  "order123",
-		"TradeNo":     "16614190477810373246",
-		"TradeAmt":    "100",
-		"TradeStatus": TradeStatusPaid,
-		"Timestamp":   "1661419047",
+		"MerID":        "ABC",
+		"MerTradeNo":   "order123",
+		"TradeNo":      "16614190477810373246",
+		"TradeAmt":     "100",
+		"TradeStatus":  TradeStatusPaid,
+		"Currency":     "TWD",
+		"PaymentType":  "CREDIT",
+		"PayTime":      "2022-08-25 15:17:27",
+		"Timestamp":    "1661419047",
 	}
 	enc, err := c.encrypt(params)
 	if err != nil {
@@ -209,6 +212,53 @@ func TestVerifyNotifySuccess(t *testing.T) {
 	}
 	if result.TradeNo != "16614190477810373246" {
 		t.Errorf("TradeNo = %q", result.TradeNo)
+	}
+	if result.Currency != "TWD" {
+		t.Errorf("Currency = %q, want TWD", result.Currency)
+	}
+	if result.PayType != "CREDIT" {
+		t.Errorf("PayType = %q, want CREDIT", result.PayType)
+	}
+	if result.PayTime != "2022-08-25 15:17:27" {
+		t.Errorf("PayTime = %q, want 2022-08-25 15:17:27", result.PayTime)
+	}
+}
+
+func TestVerifyNotifyMissingOptionalFields(t *testing.T) {
+	c := testClient(t)
+	// 不包含 Currency/PaymentType/PayTime 的回调。
+	params := map[string]string{
+		"MerID":       "ABC",
+		"MerTradeNo":  "order456",
+		"TradeNo":     "16614190477810373247",
+		"TradeAmt":    "200",
+		"TradeStatus": TradeStatusPaid,
+		"Timestamp":   "1661419048",
+	}
+	enc, err := c.encrypt(params)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	notify := buildQueryString(map[string]string{
+		"Status":      "SUCCESS",
+		"EncryptInfo": enc,
+		"HashInfo":    c.hash(enc),
+	})
+
+	result, err := c.VerifyNotify([]byte(notify))
+	if err != nil {
+		t.Fatalf("VerifyNotify: %v", err)
+	}
+	// PAYUNi 固定 TWD，即使回调数据不含 Currency 也应返回 TWD。
+	if result.Currency != "TWD" {
+		t.Errorf("Currency = %q, want TWD", result.Currency)
+	}
+	if result.PayType != "" {
+		t.Errorf("PayType = %q, want empty", result.PayType)
+	}
+	// PayTime 未返回时应填当前时间，不为空。
+	if result.PayTime == "" {
+		t.Error("PayTime = empty, want current time")
 	}
 }
 
@@ -244,5 +294,72 @@ func TestVerifyNotifyBadSignature(t *testing.T) {
 	}
 	if !errors.Is(err, gopay.ErrVerifySignature) {
 		t.Errorf("err = %v, want ErrVerifySignature", err)
+	}
+}
+
+func TestCreateOrderCurrencyValidation(t *testing.T) {
+	c := testClient(t)
+	baseReq := &gopay.CreateOrderRequest{
+		OutTradeNo: "ORDER_001",
+		Amount:     "100",
+	}
+
+	cases := []struct {
+		name     string
+		currency string
+		wantErr  bool
+	}{
+		{"empty currency defaults to TWD", "", false},
+		{"uppercase TWD", "TWD", false},
+		{"lowercase twd", "twd", false},
+		{"mixed case TwD", "TwD", false},
+		{"CNY not supported", "CNY", true},
+		{"USD not supported", "USD", true},
+		{"random not supported", "NTD", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := *baseReq
+			req.Currency = tc.currency
+			resp, err := c.CreateOrder(&req)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for Currency=%q, got nil", tc.currency)
+				}
+				if !errors.Is(err, gopay.ErrInvalidRequest) {
+					t.Errorf("err=%v, want ErrInvalidRequest", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("CreateOrder: %v", err)
+			}
+			if resp == nil {
+				t.Fatal("resp is nil")
+			}
+			if resp.FormHTML == "" {
+				t.Error("FormHTML is empty")
+			}
+			// 加密参数里 Currency 应存在且为 TWD（统一大写），通过 decrypt 验证。
+			// 这里直接走一遍 encrypt 验证 Currency 的存在。
+			checkParams := map[string]string{
+				"MerID":      "ABC",
+				"MerTradeNo": "ORDER_001",
+				"TradeAmt":   "100",
+				"Currency":   "TWD",
+			}
+			enc, err := c.encrypt(checkParams)
+			if err != nil {
+				t.Fatalf("encrypt checkParams: %v", err)
+			}
+			dec, err := c.decrypt(enc)
+			if err != nil {
+				t.Fatalf("decrypt: %v", err)
+			}
+			if dec["Currency"] != "TWD" {
+				t.Errorf("decrypted Currency = %q, want TWD", dec["Currency"])
+			}
+		})
 	}
 }

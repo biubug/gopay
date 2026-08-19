@@ -69,7 +69,7 @@ const (
 )
 
 // NotifySuccessAck 收到异步通知并通过校验后，应回传给 PAYUNi 的应答字符串。
-const NotifySuccessAck = "1|OK"
+const NotifySuccessAck = "OK"
 
 // defaultVersion 默认接口版本号。
 const defaultVersion = "1.0"

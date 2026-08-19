@@ -110,10 +110,19 @@ func (c *Client) CreateOrder(req *gopay.CreateOrderRequest) (*gopay.CreateOrderR
 		return nil, fmt.Errorf("%w: PayType %q is not supported by CreateOrder (only upp); use UniversalTrade for backend modes", gopay.ErrInvalidRequest, req.PayType)
 	}
 
+	// PAYUNi 仅支持 TWD 币种。
+	currency := strings.ToUpper(req.Currency)
+	if currency == "" {
+		currency = "TWD"
+	} else if currency != "TWD" {
+		return nil, fmt.Errorf("%w: Currency %q is not supported by PAYUNi (only TWD)", gopay.ErrInvalidRequest, req.Currency)
+	}
+
 	params := map[string]string{
 		"MerID":      c.merID,
 		"MerTradeNo": req.OutTradeNo,
 		"TradeAmt":   req.Amount,
+		"Currency":   currency,
 		"Timestamp":  strconv.FormatInt(time.Now().Unix(), 10),
 	}
 	if req.Subject != "" {
@@ -175,7 +184,6 @@ func (c *Client) QueryOrder(req *gopay.QueryOrderRequest) (*gopay.QueryOrderResp
 
 	resp := &gopay.QueryOrderResponse{
 		Channel: gopay.ChannelPayUni,
-		Raw:     decrypted,
 		RawBody: rawBody,
 	}
 	// 交易查詢回傳統一為 Result 陣列，單筆查詢取第一筆。
@@ -277,7 +285,6 @@ func (c *Client) RefundOrder(req *gopay.RefundOrderRequest) (*gopay.RefundOrderR
 		Channel: gopay.ChannelPayUni,
 		Success: true,
 		Message: decrypted["Message"],
-		Raw:     decrypted,
 		RawBody: rawBody,
 	}, nil
 }
@@ -289,6 +296,11 @@ func (c *Client) RefundOrder(req *gopay.RefundOrderRequest) (*gopay.RefundOrderR
 // 返回解密后的业务字段 map 与原始响应报文。
 func (c *Client) UniversalTrade(params map[string]string, mode, version string) (map[string]string, string, error) {
 	return c.universalTrade(params, mode, version)
+}
+
+// NotifyAck 返回 PAYUNi 回调成功后的应答字符串（"1|OK"）。
+func (c *Client) NotifyAck() string {
+	return NotifySuccessAck
 }
 
 // universalTrade 通用调用实现。

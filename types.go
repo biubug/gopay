@@ -52,6 +52,9 @@ type PaymentClient interface {
 	RefundOrder(req *RefundOrderRequest) (*RefundOrderResponse, error)
 	// VerifyNotify 校验异步回调/同步回传通知的签名并解析数据。
 	VerifyNotify(rawData []byte) (*NotifyResult, error)
+	// NotifyAck 返回回调成功后应答给渠道的字符串。
+	// 调用方在校验通过并处理完业务后，将此字符串作为 HTTP 响应体返回。
+	NotifyAck() string
 }
 
 // CreateOrderRequest 创建支付单请求。
@@ -60,6 +63,9 @@ type CreateOrderRequest struct {
 	OutTradeNo string
 	// Amount 订单金额，字符串表示以避免浮点精度问题，必填。
 	Amount string
+	// Currency 币种代码（如 TWD、CNY、USD），为空时使用渠道默认币种。
+	// 注意：PAYUNi 渠道仅支持 TWD。
+	Currency string
 	// Subject 商品/订单描述。
 	Subject string
 	// ReturnURL 支付完成后浏览器同步跳转地址。
@@ -85,8 +91,6 @@ type CreateOrderResponse struct {
 	RedirectURL string
 	// FormHTML 当 ResultType == ResultTypeHTML 时有值。
 	FormHTML string
-	// Raw 当 ResultType == ResultTypeRaw 时的原始业务数据。
-	Raw map[string]string
 	// RawBody 上游原始响应报文，便于调试。
 	RawBody string
 }
@@ -113,8 +117,6 @@ type QueryOrderResponse struct {
 	TradeState TradeState
 	// Amount 订单金额。
 	Amount string
-	// Raw 上游返回的原始业务字段。
-	Raw map[string]string
 	// RawBody 上游原始响应报文。
 	RawBody string
 }
@@ -139,8 +141,6 @@ type RefundOrderResponse struct {
 	Success bool
 	// Message 结果信息。
 	Message string
-	// Raw 上游返回的原始业务字段。
-	Raw map[string]string
 	// RawBody 上游原始响应报文。
 	RawBody string
 }
@@ -161,8 +161,12 @@ type NotifyResult struct {
 	TradeState TradeState
 	// Amount 订单金额。
 	Amount string
+	// Currency 币种代码（如 TWD），渠道未返回时为空。
+	Currency string
+	// PayType 支付方式（渠道原始值，如 PAYUNi 的 PaymentType），渠道未返回时为空。
+	PayType string
+	// PayTime 支付时间（渠道原始字符串，如 PAYUNi 的 PayTime），渠道未返回时为空。
+	PayTime string
 	// Paid 是否支付成功（TradeState == TradeStatePaid 的便捷判断）。
 	Paid bool
-	// Raw 原始业务字段（含解密后的全量通知字段）。
-	Raw map[string]string
 }
