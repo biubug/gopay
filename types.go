@@ -8,6 +8,8 @@ package gopay
 const (
 	// ChannelPayUni 統一金流 PAYUNi。
 	ChannelPayUni = "payuni"
+	// ChannelJkos 街口支付 JKO Pay。
+	ChannelJkos = "jkos"
 )
 
 // TradeState 统一交易状态。
@@ -123,8 +125,12 @@ type QueryOrderResponse struct {
 
 // RefundOrderRequest 退款请求。
 type RefundOrderRequest struct {
-	// TradeNo 渠道平台交易号（需退款的原始交易），必填。
+	// TradeNo 渠道平台交易号（需退款的原始交易）。
+	// 部分渠道（如 PAYUNi）按渠道交易号退款时必填。
 	TradeNo string
+	// OutTradeNo 商户订单号。
+	// 部分渠道（如 JKO Pay）按商户订单号退款时必填。
+	OutTradeNo string
 	// Amount 退款金额，部分渠道支持空值为全额退款。
 	Amount string
 	// CloseType 渠道关账/退款类型，含义由渠道定义（payuni 参考官方文件）。
